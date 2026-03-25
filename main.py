@@ -119,7 +119,7 @@ class PriceListPreview(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#d7dbe2"))
-        margin = 22
+        margin = 20
         page_rect = self.rect().adjusted(margin, margin, -margin, -margin)
         self.render_page(painter, page_rect)
 
@@ -137,31 +137,31 @@ class PriceListPreview(QWidget):
         pen.setJoinStyle(Qt.MiterJoin)
         painter.setPen(pen)
 
-        top_margin = max(26, int(h * 0.035))
-        side_margin = max(26, int(w * 0.02))
+        left = x + int(w * 0.02)
+        right = x + w - int(w * 0.02)
 
-        title_h = max(34, int(h * 0.048))
-        subtitle_h = max(26, int(h * 0.034))
-        gap_title_sub = max(10, int(h * 0.012))
-        gap_sub_table = max(24, int(h * 0.035))
+        title_y = y + int(h * 0.03)
+        title_h = int(h * 0.055)
+        subtitle_y = title_y + title_h + int(h * 0.02)
+        subtitle_h = int(h * 0.04)
+        table_top = subtitle_y + subtitle_h + int(h * 0.055)
 
-        painter.setFont(QFont("Arial", max(16, int(h * 0.028)), QFont.Bold))
-        painter.drawText(QRectF(x, y + top_margin, w, title_h), Qt.AlignCenter, self.data["business_name"])
+        table_h = int(h * 0.50)
+        header_h1 = int(table_h * 0.12)
+        header_h2 = int(table_h * 0.10)
+        row_h = int((table_h - header_h1 - header_h2) / len(self.data["meters"]))
 
-        subtitle_y = y + top_margin + title_h + gap_title_sub
-        painter.setFont(QFont("Arial", max(11, int(h * 0.018)), QFont.Bold))
-        painter.drawText(QRectF(x, subtitle_y, w, subtitle_h), Qt.AlignCenter, self.data["subtitle"])
-
-        table_top = int(subtitle_y + subtitle_h + gap_sub_table)
-        table_x = x + side_margin
-        table_w = w - side_margin * 2
-        left_col_w = int(table_w * 0.072)
+        table_x = left
+        table_w = right - left
+        left_col_w = int(table_w * 0.074)
         sub_col_w = int((table_w - left_col_w) / 8)
         table_right = table_x + left_col_w + sub_col_w * 8
 
-        header_h1 = max(34, int(h * 0.048))
-        header_h2 = max(30, int(h * 0.043))
-        row_h = max(34, int(h * 0.053))
+        painter.setFont(QFont("Arial", max(16, int(h * 0.032)), QFont.Bold))
+        painter.drawText(QRectF(x, title_y, w, title_h), Qt.AlignCenter, self.data["business_name"])
+
+        painter.setFont(QFont("Arial", max(11, int(h * 0.021)), QFont.Bold))
+        painter.drawText(QRectF(x, subtitle_y, w, subtitle_h), Qt.AlignCenter, self.data["subtitle"])
 
         total_table_h = header_h1 + header_h2 + len(self.data["meters"]) * row_h
         painter.drawRect(table_x, table_top, table_right - table_x, total_table_h)
@@ -187,24 +187,24 @@ class PriceListPreview(QWidget):
             ypos = table_top + header_h1 + header_h2 + i * row_h
             painter.drawLine(table_x, ypos, table_right, ypos)
 
-        painter.setFont(QFont("Arial", max(9, int(h * 0.015)), QFont.Bold))
+        painter.setFont(QFont("Arial", max(8, int(h * 0.017)), QFont.Bold))
         painter.drawText(QRectF(table_x, table_top, left_col_w, header_h1), Qt.AlignCenter, "METROS")
         groups = ["1 COLOR", "2 COLORES", "3 COLORES", "4 COLORES"]
         for i, group in enumerate(groups):
             gx = table_x + left_col_w + i * sub_col_w * 2
             painter.drawText(QRectF(gx, table_top, sub_col_w * 2, header_h1), Qt.AlignCenter, group)
 
-        painter.setFont(QFont("Arial", max(8, int(h * 0.014)), QFont.Bold))
+        painter.setFont(QFont("Arial", max(7, int(h * 0.015)), QFont.Bold))
         for i in range(8):
             cx = table_x + left_col_w + i * sub_col_w
             label = "1 CARA" if i % 2 == 0 else "2 CARAS"
             painter.drawText(QRectF(cx, table_top + header_h1, sub_col_w, header_h2), Qt.AlignCenter, label)
 
-        painter.setFont(QFont("Arial", max(9, int(h * 0.016))))
+        painter.setFont(QFont("Arial", max(8, int(h * 0.017))))
+        data_y = table_top + header_h1 + header_h2
         meters = self.data["meters"]
         columns = self.data["columns"]
         prices = self.data["prices"]
-        data_y = table_top + header_h1 + header_h2
 
         for row, meter in enumerate(meters):
             ry = data_y + row * row_h
@@ -215,38 +215,40 @@ class PriceListPreview(QWidget):
                 text = "" if val == 0 else f"${val}"
                 painter.drawText(QRectF(cx, ry, sub_col_w, row_h), Qt.AlignCenter, text)
 
-        confeccion_gap = max(24, int(h * 0.04))
-        confeccion_top = data_y + len(meters) * row_h + confeccion_gap
-        painter.setFont(QFont("Arial", max(12, int(h * 0.021)), QFont.Bold))
-        painter.drawText(QRectF(x, confeccion_top, w, 28), Qt.AlignCenter, "CONFECCIÓN")
+        conf_title_y = table_top + total_table_h + int(h * 0.055)
+        painter.setFont(QFont("Arial", max(12, int(h * 0.024)), QFont.Bold))
+        painter.drawText(QRectF(x, conf_title_y, w, int(h * 0.04)), Qt.AlignCenter, "CONFECCIÓN")
 
-        line_y = confeccion_top + max(34, int(h * 0.05))
+        rows_y = conf_title_y + int(h * 0.06)
         center_x = x + w // 2
-        label_w = int(w * 0.14)
-        value_w = int(w * 0.24)
-        gap = int(w * 0.018)
+        label_w = int(w * 0.12)
+        value_w = int(w * 0.22)
+        gap = int(w * 0.02)
         label_x = center_x - label_w - gap // 2
         value_x = center_x + gap // 2
+        step = int(h * 0.043)
 
+        painter.setFont(QFont("Arial", max(9, int(h * 0.021))))
         confeccion = self.data["confeccion"]
-        painter.setFont(QFont("Arial", max(10, int(h * 0.018))))
         rows = [
             ("FONDO", f"${confeccion['fondo']} x metro"),
             ("LATERAL", f"${confeccion['lateral']} x metro"),
             ("RIÑON", f"${confeccion['rinon']} c/1000 bolsas"),
         ]
-        step = max(28, int(h * 0.036))
-        for idx, (left, right) in enumerate(rows):
-            yy = line_y + idx * step
-            painter.drawText(QRectF(label_x, yy, label_w, 24), Qt.AlignRight | Qt.AlignVCenter, left)
-            painter.drawText(QRectF(value_x, yy, value_w, 24), Qt.AlignLeft | Qt.AlignVCenter, right)
+        for idx, (left_text, right_text) in enumerate(rows):
+            yy = rows_y + idx * step
+            painter.drawText(QRectF(label_x, yy, label_w, step), Qt.AlignRight | Qt.AlignVCenter, left_text)
+            painter.drawText(QRectF(value_x, yy, value_w, step), Qt.AlignLeft | Qt.AlignVCenter, right_text)
 
-        painter.setFont(QFont("Arial", max(10, int(h * 0.017)), QFont.Bold))
-        painter.drawText(QRectF(x, line_y + step * 3 + max(8, int(h * 0.012)), w, 24), Qt.AlignCenter, confeccion["solapa_text"])
+        solapa_y = rows_y + step * 3 + int(h * 0.01)
+        painter.setFont(QFont("Arial", max(9, int(h * 0.019)), QFont.Bold))
+        painter.drawText(QRectF(x, solapa_y, w, int(h * 0.035)), Qt.AlignCenter, confeccion["solapa_text"])
 
-        painter.setFont(QFont("Arial", max(9, int(h * 0.015))))
-        painter.drawText(QRectF(x + w - 160, y + h - 48, 135, 20), Qt.AlignRight, f"Lista {self.data['list_number']}")
-        painter.drawText(QRectF(x + w - 160, y + h - 24, 135, 20), Qt.AlignRight, self.data["date"])
+        footer_y = y + h - int(h * 0.05)
+        painter.setFont(QFont("Arial", max(8, int(h * 0.016))))
+        painter.drawText(QRectF(x + w - 165, footer_y - int(h * 0.028), 145, int(h * 0.024)), Qt.AlignRight, f"Lista {self.data['list_number']}")
+        painter.drawText(QRectF(x + w - 165, footer_y, 145, int(h * 0.024)), Qt.AlignRight, self.data["date"])
+
         painter.restore()
 
     def render_to_image(self, size: QSize) -> QImage:
@@ -295,6 +297,7 @@ class MainWindow(QMainWindow):
                 top: -2px;
                 padding: 0 6px;
                 background: #252b34;
+                color: #f4f7fb;
             }
             QLabel { color: #eef2f6; background: transparent; }
             QLineEdit, QSpinBox, QDoubleSpinBox {
@@ -331,23 +334,23 @@ class MainWindow(QMainWindow):
                 font-weight: bold;
             }
             QPushButton {
-                background: #f2f4f7;
-                color: #111111;
-                border: 1px solid #c5cbd3;
+                background: #4b5563;
+                color: #ffffff;
+                border: 1px solid #758090;
                 border-radius: 7px;
                 padding: 8px 10px;
                 font-weight: bold;
             }
-            QPushButton:hover { background: #ffffff; color: #111111; }
-            QPushButton:pressed { background: #dfe5ec; color: #111111; }
-            QPushButton:disabled { color: #666666; background: #d7dce2; }
+            QPushButton:hover { background: #5c6776; color: #ffffff; }
+            QPushButton:pressed { background: #3f4854; color: #ffffff; }
+            QPushButton:disabled { color: #d1d5db; background: #59616d; }
             QScrollArea, QScrollArea > QWidget > QWidget { border: none; background: #252b34; }
             QMenuBar { background: #1c2128; color: white; }
             QMenuBar::item:selected { background: #343c48; }
             QMenu { background: #ffffff; color: #111111; }
             QMessageBox { background: #ffffff; }
             QMessageBox QLabel { color: #111111; background: #ffffff; font-size: 13px; }
-            QMessageBox QPushButton { min-width: 90px; }
+            QMessageBox QPushButton { min-width: 90px; color: #ffffff; }
         """)
 
     def build_ui(self):
@@ -398,8 +401,9 @@ class MainWindow(QMainWindow):
         self.control_layout.addStretch()
 
     def build_menu(self):
-        menu = self.menuBar()
-        archivo = menu.addMenu("Archivo")
+        menubar = self.menuBar()
+
+        archivo = menubar.addMenu("Archivo")
 
         action_guardar = QAction("Guardar paquete", self)
         action_guardar.triggered.connect(self.save_package)
@@ -408,25 +412,6 @@ class MainWindow(QMainWindow):
         action_cargar = QAction("Cargar lista", self)
         action_cargar.triggered.connect(self.load_package)
         archivo.addAction(action_cargar)
-
-        action_imprimir = QAction("Imprimir", self)
-        action_imprimir.setShortcut(QKeySequence.Print)
-        action_imprimir.triggered.connect(self.print_list)
-        archivo.addAction(action_imprimir)
-
-        archivo.addSeparator()
-
-        action_deshacer = QAction("Deshacer", self)
-        action_deshacer.setShortcut(QKeySequence.Undo)
-        action_deshacer.triggered.connect(self.undo_action)
-        archivo.addAction(action_deshacer)
-
-        action_rehacer = QAction("Rehacer", self)
-        action_rehacer.setShortcut(QKeySequence.Redo)
-        action_rehacer.triggered.connect(self.redo_action)
-        archivo.addAction(action_rehacer)
-
-        archivo.addSeparator()
 
         action_pdf = QAction("Exportar PDF", self)
         action_pdf.triggered.connect(self.export_pdf_dialog)
@@ -441,6 +426,21 @@ class MainWindow(QMainWindow):
         action_salir = QAction("Salir", self)
         action_salir.triggered.connect(self.close)
         archivo.addAction(action_salir)
+
+        action_imprimir = QAction("Imprimir", self)
+        action_imprimir.setShortcut(QKeySequence.Print)
+        action_imprimir.triggered.connect(self.print_list)
+        menubar.addAction(action_imprimir)
+
+        action_deshacer = QAction("Deshacer", self)
+        action_deshacer.setShortcut(QKeySequence.Undo)
+        action_deshacer.triggered.connect(self.undo_action)
+        menubar.addAction(action_deshacer)
+
+        action_rehacer = QAction("Rehacer", self)
+        action_rehacer.setShortcut(QKeySequence.Redo)
+        action_rehacer.triggered.connect(self.redo_action)
+        menubar.addAction(action_rehacer)
 
     def build_header_controls(self):
         box = QGroupBox("Encabezado")
@@ -536,7 +536,6 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.btn_undo, 2, 0)
         grid.addWidget(self.btn_redo, 2, 1)
         grid.addWidget(btn_reset, 2, 2)
-
         self.control_layout.addWidget(box)
 
     def build_bottom_buttons(self):
@@ -731,7 +730,7 @@ class MainWindow(QMainWindow):
         painter.end()
 
     def make_png_file(self, filepath: str):
-        image = self.preview.render_to_image(QSize(2100, 1485))
+        image = self.preview.render_to_image(QSize(3508, 2480))
         image.save(filepath, "PNG")
 
     def export_pdf_dialog(self):
