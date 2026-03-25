@@ -1,10 +1,21 @@
+
 import sys
 import json
 import copy
-from datetime import datetime
+import zipfile
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QSize, QRectF
-from PySide6.QtGui import QAction, QFont, QPainter, QPdfWriter, QPageSize, QPixmap
+from PySide6.QtCore import Qt, QRectF, QSize
+from PySide6.QtGui import (
+    QAction,
+    QFont,
+    QPainter,
+    QPdfWriter,
+    QPageSize,
+    QPen,
+    QColor,
+    QImage,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -23,14 +34,17 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFileDialog,
     QSplitter,
-    QFrame,
     QGridLayout,
     QScrollArea,
     QSizePolicy,
+    QAbstractItemView,
 )
 
+
 APP_TITLE = "Programa Lista Precios"
-DATA_FILE = "lista_precios_data.json"
+BASE_DIR = Path(__file__).resolve().parent
+SAVES_DIR = BASE_DIR.parent / "lista-precios-saves"
+WORK_FILE = SAVES_DIR / "autosave_lista_actual.json"
 
 
 DEFAULT_DATA = {
@@ -68,21 +82,32 @@ DEFAULT_DATA = {
 }
 
 
+def ensure_saves_dir():
+    SAVES_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def round_half_up(value: float) -> int:
     base = int(value)
     frac = value - base
-    if frac >= 0.5:
-        return base + 1
-    return base
+    return base + 1 if frac >= 0.5 else base
+
+
+def sanitize_filename(text: str) -> str:
+    invalid = '<>:"/\\|?*'
+    result = "".join("_" if ch in invalid else ch for ch in text)
+    return result.strip().replace(" ", "_")
+
+
+def package_base_name(data: dict) -> str:
+    return sanitize_filename(f"Lista_{data['list_number']}")
 
 
 class PriceListPreview(QWidget):
     def __init__(self):
         super().__init__()
         self.data = copy.deepcopy(DEFAULT_DATA)
-        self.setMinimumSize(800, 700)
+        self.setMinimumSize(860, 760)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setStyleSheet("background: #efefef;")
 
     def set_data(self, data: dict):
         self.data = copy.deepcopy(data)
@@ -91,106 +116,249 @@ class PriceListPreview(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
-        painter.fillRect(self.rect(), Qt.lightGray)
+        painter.fillRect(self.rect(), QColor("#cfd5dd"))
+        margin = 34
+        page_rect = self.rect().adjusted(margin, margin, -margin, -margin)
+        self.render_page(painter, page_rect)
 
-        w = self.width()
-        h = self.height()
-        margin_x = 60
-        y = 55
+    def render_page(self, painter: QPainter, page_rect):
+        painter.save()
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        painter.fillRect(page_rect, Qt.white)
 
-        title_font = QFont("Arial", 25, QFont.Bold)
-        title_font.setItalic(True)
-        painter.setFont(title_font)
-        painter.drawText(QRectF(0, y, w, 50), Qt.AlignHCenter | Qt.AlignVCenter, self.data["business_name"])
+        grid_pen = QPen(Qt.black)
+        grid_pen.setWidth(2)
+        grid_pen.setJoinStyle(Qt.MiterJoin)
+        painter.setPen(grid_pen)
 
-        y += 70
-        subtitle_font = QFont("Arial", 18)
-        subtitle_font.setItalic(True)
-        painter.setFont(subtitle_font)
-        painter.drawText(QRectF(0, y, w, 40), Qt.AlignHCenter | Qt.AlignVCenter, self.data["subtitle"])
+        x = page_rect.left()
+        y = page_rect.top()
+        w = page_rect.width()
+        h = page_rect.height()
 
-        y += 65
-        table_x = margin_x
-        table_w = w - margin_x * 2
-        left_col_w = 105
-        sub_col_w = (table_w - left_col_w) / 8
-        row_h = 38
-        header_h = 35
+        top_margin = 38
+        side_margin = 42
 
-        painter.setFont(QFont("Arial", 12, QFont.Bold))
-        painter.drawRect(table_x, y, left_col_w, header_h)
-        painter.drawText(QRectF(table_x, y, left_col_w, header_h), Qt.AlignCenter, "METROS")
+        title_rect = QRectF(x, y + top_margin, w, 38)
+        subtitle_rect = QRectF(x, y + top_margin + 46, w, 32)
 
+        painter.setFont(QFont("Arial", 23, QFont.Bold))
+        painter.drawText(title_rect, Qt.AlignCenter, self.data["business_name"])
+
+        painter.setFont(QFont("Arial", 15, QFont.Bold))
+        painter.drawText(subtitle_rect, Qt.AlignCenter, self.data["subtitle"])
+
+        table_top = y + 132
+        table_x = int(x + side_margin)
+        table_w = int(w - side_margin * 2)
+        left_col_w = 108
+        sub_col_w = int((table_w - left_col_w) / 8)
+        table_right = table_x + left_col_w + sub_col_w * 8
+        header_h1 = 38
+        header_h2 = 38
+        row_h = 40
+
+        painter.setFont(QFont("Arial", 11, QFont.Bold))
+
+        # Outer table border
+        total_table_h = header_h1 + header_h2 + len(self.data["meters"]) * row_h
+        painter.drawRect(table_x, int(table_top), table_right - table_x, total_table_h)
+
+        # Vertical lines
+        x_positions = [table_x, table_x + left_col_w]
+        for i in range(1, 9):
+            x_positions.append(table_x + left_col_w + i * sub_col_w)
+
+        for xpos in x_positions[1:-1]:
+            # group top row
+            if xpos == table_x + left_col_w or xpos == table_x + left_col_w + 2 * sub_col_w or xpos == table_x + left_col_w + 4 * sub_col_w or xpos == table_x + left_col_w + 6 * sub_col_w:
+                painter.drawLine(xpos, int(table_top), xpos, int(table_top + total_table_h))
+            else:
+                painter.drawLine(xpos, int(table_top + header_h1), xpos, int(table_top + total_table_h))
+
+        # Horizontal lines
+        painter.drawLine(table_x, int(table_top + header_h1), table_right, int(table_top + header_h1))
+        painter.drawLine(table_x, int(table_top + header_h1 + header_h2), table_right, int(table_top + header_h1 + header_h2))
+        for i in range(1, len(self.data["meters"])):
+            ypos = int(table_top + header_h1 + header_h2 + i * row_h)
+            painter.drawLine(table_x, ypos, table_right, ypos)
+
+        # Text headers
+        painter.drawText(QRectF(table_x, table_top, left_col_w, header_h1), Qt.AlignCenter, "METROS")
         groups = ["1 COLOR", "2 COLORES", "3 COLORES", "4 COLORES"]
         for i, group in enumerate(groups):
             gx = table_x + left_col_w + i * sub_col_w * 2
-            painter.drawRect(gx, y, sub_col_w * 2, header_h)
-            painter.drawText(QRectF(gx, y, sub_col_w * 2, header_h), Qt.AlignCenter, group)
+            painter.drawText(QRectF(gx, table_top, sub_col_w * 2, header_h1), Qt.AlignCenter, group)
 
-        y2 = y + header_h
-        painter.setFont(QFont("Arial", 11))
-        painter.drawRect(table_x, y2, left_col_w, header_h)
+        painter.setFont(QFont("Arial", 10, QFont.Bold))
         for i in range(8):
             cx = table_x + left_col_w + i * sub_col_w
-            painter.drawRect(cx, y2, sub_col_w, header_h)
             label = "1 CARA" if i % 2 == 0 else "2 CARAS"
-            painter.drawText(QRectF(cx, y2, sub_col_w, header_h), Qt.AlignCenter, label)
+            painter.drawText(QRectF(cx, table_top + header_h1, sub_col_w, header_h2), Qt.AlignCenter, label)
 
-        data_y = y2 + header_h
+        painter.setFont(QFont("Arial", 10))
         meters = self.data["meters"]
         columns = self.data["columns"]
         prices = self.data["prices"]
+        data_y = table_top + header_h1 + header_h2
 
         for row, meter in enumerate(meters):
             ry = data_y + row * row_h
-            painter.drawRect(table_x, ry, left_col_w, row_h)
             painter.drawText(QRectF(table_x, ry, left_col_w, row_h), Qt.AlignCenter, str(meter))
             for col, colinfo in enumerate(columns):
                 cx = table_x + left_col_w + col * sub_col_w
-                painter.drawRect(cx, ry, sub_col_w, row_h)
                 val = prices[colinfo["key"]][row]
                 text = "" if val == 0 else f"${val}"
                 painter.drawText(QRectF(cx, ry, sub_col_w, row_h), Qt.AlignCenter, text)
 
-        confeccion_top = data_y + len(meters) * row_h + 35
-        painter.setFont(QFont("Arial", 17))
-        painter.drawText(QRectF(0, confeccion_top, w, 30), Qt.AlignHCenter | Qt.AlignVCenter, "CONFECCIÓN:")
+        confeccion_top = data_y + len(meters) * row_h + 36
+        painter.setFont(QFont("Arial", 16, QFont.Bold))
+        painter.drawText(QRectF(x, confeccion_top, w, 28), Qt.AlignCenter, "CONFECCIÓN")
 
-        painter.setFont(QFont("Arial", 15))
+        line_y = confeccion_top + 52
+        label_x = x + w * 0.28
+        value_x = x + w * 0.48
+
         confeccion = self.data["confeccion"]
-        left_x = w * 0.40
-        right_x = w * 0.52
-        line_y = confeccion_top + 65
-        lines = [
+        painter.setFont(QFont("Arial", 13))
+        rows = [
             ("FONDO", f"${confeccion['fondo']} x metro"),
             ("LATERAL", f"${confeccion['lateral']} x metro"),
             ("RIÑON", f"${confeccion['rinon']} c/1000 bolsas"),
-            (confeccion["solapa_text"], ""),
         ]
-        for idx, (left, right) in enumerate(lines):
-            yy = line_y + idx * 38
-            painter.drawText(int(left_x), int(yy), left)
-            if right:
-                painter.drawText(int(right_x), int(yy), right)
+        for idx, (left, right) in enumerate(rows):
+            yy = line_y + idx * 34
+            painter.drawText(QRectF(label_x, yy, 140, 26), Qt.AlignCenter, left)
+            painter.drawText(QRectF(value_x, yy, 220, 26), Qt.AlignCenter, right)
 
-        footer_x = w - 150
-        footer_y = h - 95
-        painter.setFont(QFont("Arial", 15))
-        painter.drawText(footer_x, footer_y, f"Lista {self.data['list_number']}")
-        painter.drawText(footer_x, footer_y + 35, self.data["date"])
+        painter.setFont(QFont("Arial", 12, QFont.Bold))
+        painter.drawText(QRectF(x, line_y + 112, w, 24), Qt.AlignCenter, confeccion["solapa_text"])
+
+        painter.setFont(QFont("Arial", 12))
+        painter.drawText(QRectF(x + w - 170, y + h - 66, 145, 22), Qt.AlignRight, f"Lista {self.data['list_number']}")
+        painter.drawText(QRectF(x + w - 170, y + h - 40, 145, 22), Qt.AlignRight, self.data["date"])
+        painter.restore()
+
+    def render_to_image(self, size: QSize) -> QImage:
+        image = QImage(size, QImage.Format_ARGB32)
+        image.fill(Qt.white)
+        painter = QPainter(image)
+        self.render_page(painter, QRectF(0, 0, size.width(), size.height()))
+        painter.end()
+        return image
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        ensure_saves_dir()
         self.setWindowTitle(APP_TITLE)
-        self.resize(1500, 900)
+        self.resize(1540, 930)
         self.history = []
-        self.data = self.load_data()
+        self.data = self.load_work_data()
+        self.setup_style()
         self.build_ui()
         self.push_history()
         self.load_data_into_controls()
         self.refresh_preview()
+
+    def setup_style(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background: #1d2128;
+            }
+            QWidget {
+                font-family: Arial;
+                font-size: 12px;
+                background: #1d2128;
+            }
+            QSplitter::handle {
+                background: #2a303a;
+                width: 2px;
+            }
+            QGroupBox {
+                color: #eef2f6;
+                border: 1px solid #505866;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding-top: 12px;
+                background: #2a303a;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 4px;
+                background: transparent;
+            }
+            QLabel {
+                color: #eef2f6;
+                background: transparent;
+            }
+            QLineEdit, QSpinBox, QDoubleSpinBox {
+                background: #f5f7fa;
+                color: #111111;
+                border: 1px solid #bcc5d0;
+                border-radius: 6px;
+                padding: 5px 6px;
+            }
+            QTableWidget {
+                background: #f5f7fa;
+                color: #111111;
+                border: 1px solid #bcc5d0;
+                border-radius: 6px;
+                gridline-color: #ccd3db;
+            }
+            QTableWidget::item {
+                background: #ffffff;
+                color: #111111;
+                padding: 4px;
+            }
+            QTableWidget QHeaderView::section {
+                background: #e9edf2;
+                color: #111111;
+                border: 1px solid #bcc5d0;
+                padding: 5px;
+                font-weight: bold;
+            }
+            QPushButton {
+                background: #f5f7fa;
+                color: #111111;
+                border: 1px solid #c5cbd3;
+                border-radius: 7px;
+                padding: 8px 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #ffffff;
+            }
+            QScrollArea, QScrollArea > QWidget > QWidget {
+                border: none;
+                background: #1d2128;
+            }
+            QMenuBar {
+                background: #15181d;
+                color: white;
+            }
+            QMenuBar::item:selected {
+                background: #2c3340;
+            }
+            QMenu {
+                background: #ffffff;
+                color: #111111;
+            }
+            QMessageBox {
+                background: #ffffff;
+            }
+            QMessageBox QLabel {
+                color: #111111;
+                background: #ffffff;
+                font-size: 13px;
+            }
+            QMessageBox QPushButton {
+                min-width: 90px;
+            }
+        """)
 
     def build_ui(self):
         self.build_menu()
@@ -198,29 +366,43 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
+        root.setContentsMargins(10, 10, 10, 10)
 
         splitter = QSplitter(Qt.Horizontal)
         root.addWidget(splitter)
 
         preview_container = QWidget()
+        preview_container.setStyleSheet("background: #1d2128;")
         preview_layout = QVBoxLayout(preview_container)
-        preview_layout.setContentsMargins(10, 10, 10, 10)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.setSpacing(4)
 
         self.preview = PriceListPreview()
-        preview_layout.addWidget(self.preview)
+        preview_layout.addWidget(self.preview, 1)
+
+        signature_row = QHBoxLayout()
+        signature_row.setContentsMargins(8, 0, 8, 6)
+        signature_row.addStretch()
+        self.signature_label = QLabel("Made by Franco Albertario (frack.one)")
+        self.signature_label.setStyleSheet("color: #cfd6df; font-size: 12px; background: transparent;")
+        signature_row.addWidget(self.signature_label)
+        preview_layout.addLayout(signature_row)
 
         splitter.addWidget(preview_container)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: #1d2128;")
+
         control_host = QWidget()
+        control_host.setStyleSheet("background: #1d2128;")
         self.control_layout = QVBoxLayout(control_host)
-        self.control_layout.setContentsMargins(12, 12, 12, 12)
+        self.control_layout.setContentsMargins(8, 8, 8, 8)
         self.control_layout.setSpacing(12)
         scroll.setWidget(control_host)
 
         splitter.addWidget(scroll)
-        splitter.setSizes([1000, 430])
+        splitter.setSizes([1030, 470])
 
         self.build_header_controls()
         self.build_table_editor()
@@ -233,16 +415,22 @@ class MainWindow(QMainWindow):
         menu = self.menuBar()
         archivo = menu.addMenu("Archivo")
 
-        action_guardar = QAction("Guardar", self)
-        action_guardar.triggered.connect(self.save_data)
+        action_guardar = QAction("Guardar paquete", self)
+        action_guardar.triggered.connect(self.save_package)
         archivo.addAction(action_guardar)
 
+        action_cargar = QAction("Cargar lista", self)
+        action_cargar.triggered.connect(self.load_package)
+        archivo.addAction(action_cargar)
+
+        archivo.addSeparator()
+
         action_pdf = QAction("Exportar PDF", self)
-        action_pdf.triggered.connect(self.export_pdf)
+        action_pdf.triggered.connect(self.export_pdf_dialog)
         archivo.addAction(action_pdf)
 
         action_png = QAction("Exportar imagen", self)
-        action_png.triggered.connect(self.export_image)
+        action_png.triggered.connect(self.export_image_dialog)
         archivo.addAction(action_png)
 
         archivo.addSeparator()
@@ -261,11 +449,9 @@ class MainWindow(QMainWindow):
         self.list_number_edit.setMaximum(999999)
         self.date_edit = QLineEdit()
 
-        for w in [self.business_name_edit, self.subtitle_edit, self.list_number_edit, self.date_edit]:
-            if hasattr(w, "textChanged"):
-                w.textChanged.connect(self.on_manual_change)
-            if hasattr(w, "valueChanged"):
-                w.valueChanged.connect(self.on_manual_change)
+        for w in [self.business_name_edit, self.subtitle_edit, self.date_edit]:
+            w.textChanged.connect(self.on_manual_change)
+        self.list_number_edit.valueChanged.connect(self.on_manual_change)
 
         form.addRow("Negocio", self.business_name_edit)
         form.addRow("Subtítulo", self.subtitle_edit)
@@ -284,8 +470,10 @@ class MainWindow(QMainWindow):
         headers = ["METROS"] + [f"{c['group']}\n{c['label']}" for c in DEFAULT_DATA["columns"]]
         self.table.setHorizontalHeaderLabels(headers)
         self.table.itemChanged.connect(self.on_table_item_changed)
-        lay.addWidget(self.table)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.table.setMinimumHeight(320)
 
+        lay.addWidget(self.table)
         self.control_layout.addWidget(box)
 
     def build_confeccion_editor(self):
@@ -352,29 +540,46 @@ class MainWindow(QMainWindow):
         self.control_layout.addWidget(box)
 
     def build_bottom_buttons(self):
-        row = QHBoxLayout()
-        btn_save = QPushButton("Guardar")
-        btn_save.clicked.connect(self.save_data)
+        row = QGridLayout()
+
+        btn_save = QPushButton("Guardar paquete")
+        btn_save.clicked.connect(self.save_package)
+
+        btn_load = QPushButton("Cargar lista")
+        btn_load.clicked.connect(self.load_package)
 
         btn_pdf = QPushButton("Exportar PDF")
-        btn_pdf.clicked.connect(self.export_pdf)
+        btn_pdf.clicked.connect(self.export_pdf_dialog)
 
         btn_image = QPushButton("Exportar imagen")
-        btn_image.clicked.connect(self.export_image)
+        btn_image.clicked.connect(self.export_image_dialog)
 
-        row.addWidget(btn_save)
-        row.addWidget(btn_pdf)
-        row.addWidget(btn_image)
-        self.control_layout.addLayout(row)
+        row.addWidget(btn_save, 0, 0)
+        row.addWidget(btn_load, 0, 1)
+        row.addWidget(btn_pdf, 1, 0)
+        row.addWidget(btn_image, 1, 1)
 
-    def load_data(self):
+        wrap = QWidget()
+        wrap.setLayout(row)
+        wrap.setStyleSheet("background: transparent;")
+        self.control_layout.addWidget(wrap)
+
+    def load_work_data(self):
+        ensure_saves_dir()
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
+            with open(WORK_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except FileNotFoundError:
-            return copy.deepcopy(DEFAULT_DATA)
         except Exception:
             return copy.deepcopy(DEFAULT_DATA)
+
+    def save_work_data(self):
+        self.sync_controls_to_data()
+        ensure_saves_dir()
+        try:
+            with open(WORK_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def load_data_into_controls(self):
         self.table.blockSignals(True)
@@ -432,11 +637,12 @@ class MainWindow(QMainWindow):
         self.data["confeccion"]["fondo"] = self.fondo_edit.value()
         self.data["confeccion"]["lateral"] = self.lateral_edit.value()
         self.data["confeccion"]["rinon"] = self.rinon_edit.value()
-        self.data["confeccion"]["solapa_text"] = self.solapa_edit.text().strip()
+        self.data["confeccion"]["solapa_text"] = self.solapa_edit.text().strip() or DEFAULT_DATA["confeccion"]["solapa_text"]
 
     def refresh_preview(self):
         self.sync_controls_to_data()
         self.preview.set_data(self.data)
+        self.save_work_data()
 
     def on_manual_change(self, *args):
         self.refresh_preview()
@@ -446,7 +652,7 @@ class MainWindow(QMainWindow):
 
     def push_history(self):
         self.history.append(copy.deepcopy(self.data))
-        if len(self.history) > 30:
+        if len(self.history) > 40:
             self.history.pop(0)
 
     def apply_global_percentage(self):
@@ -490,45 +696,109 @@ class MainWindow(QMainWindow):
         self.load_data_into_controls()
         self.refresh_preview()
 
-    def save_data(self):
-        self.sync_controls_to_data()
-        try:
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=2)
-            self.push_history()
-            QMessageBox.information(self, "Guardado", "Los cambios se guardaron correctamente.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo guardar.\n\n{e}")
-
-    def export_pdf(self):
-        self.refresh_preview()
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", "lista_precios.pdf", "PDF (*.pdf)")
-        if not path:
-            return
-
-        pdf = QPdfWriter(path)
+    def make_pdf_file(self, filepath: str):
+        pdf = QPdfWriter(filepath)
         pdf.setPageSize(QPageSize(QPageSize.A4))
         pdf.setResolution(150)
 
         painter = QPainter(pdf)
-        preview_pixmap = self.preview.grab()
         page_rect = pdf.pageLayout().paintRectPixels(pdf.resolution())
-        scaled = preview_pixmap.scaled(page_rect.width(), page_rect.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        x = (page_rect.width() - scaled.width()) // 2
-        y = (page_rect.height() - scaled.height()) // 2
-        painter.drawPixmap(x, y, scaled)
+        margin = 35
+        target = QRectF(margin, margin, page_rect.width() - margin * 2, page_rect.height() - margin * 2)
+        self.preview.render_page(painter, target)
         painter.end()
 
-        QMessageBox.information(self, "PDF", "PDF exportado correctamente.")
+    def make_png_file(self, filepath: str):
+        image = self.preview.render_to_image(QSize(1600, 2100))
+        image.save(filepath, "PNG")
 
-    def export_image(self):
+    def export_pdf_dialog(self):
         self.refresh_preview()
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar imagen", "lista_precios.png", "PNG (*.png)")
+        default_name = str(SAVES_DIR / f"{package_base_name(self.data)}.pdf")
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar PDF", default_name, "PDF (*.pdf)")
         if not path:
             return
-        pixmap = self.preview.grab()
-        pixmap.save(path, "PNG")
-        QMessageBox.information(self, "Imagen", "Imagen exportada correctamente.")
+        self.make_pdf_file(path)
+        QMessageBox.information(self, "PDF", "El PDF se exportó correctamente.")
+
+    def export_image_dialog(self):
+        self.refresh_preview()
+        default_name = str(SAVES_DIR / f"{package_base_name(self.data)}.png")
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar imagen", default_name, "PNG (*.png)")
+        if not path:
+            return
+        self.make_png_file(path)
+        QMessageBox.information(self, "Imagen", "La imagen se exportó correctamente.")
+
+    def save_package(self):
+        self.refresh_preview()
+        ensure_saves_dir()
+        base = package_base_name(self.data)
+        suggested = str(SAVES_DIR / f"{base}.zip")
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar paquete", suggested, "Archivo ZIP (*.zip)")
+        if not path:
+            return
+
+        temp_dir = SAVES_DIR / "_temp_export"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        json_path = temp_dir / f"datos_{base}.json"
+        pdf_path = temp_dir / f"{base}.pdf"
+        png_path = temp_dir / f"{base}.png"
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+
+        self.make_pdf_file(str(pdf_path))
+        self.make_png_file(str(png_path))
+
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(json_path, arcname=f"{base}/{json_path.name}")
+            zf.write(pdf_path, arcname=f"{base}/{pdf_path.name}")
+            zf.write(png_path, arcname=f"{base}/{png_path.name}")
+
+        for file in [json_path, pdf_path, png_path]:
+            if file.exists():
+                file.unlink()
+        if temp_dir.exists():
+            try:
+                temp_dir.rmdir()
+            except Exception:
+                pass
+
+        QMessageBox.information(self, "Guardado", "La lista se guardó correctamente.")
+
+    def load_package(self):
+        ensure_saves_dir()
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Cargar lista",
+            str(SAVES_DIR),
+            "Paquete ZIP (*.zip);;JSON (*.json)"
+        )
+        if not path:
+            return
+
+        try:
+            if path.lower().endswith(".json"):
+                with open(path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+            else:
+                loaded = None
+                with zipfile.ZipFile(path, "r") as zf:
+                    json_candidates = [name for name in zf.namelist() if name.lower().endswith(".json")]
+                    if not json_candidates:
+                        raise ValueError("El archivo no contiene datos válidos de una lista.")
+                    with zf.open(json_candidates[0]) as f:
+                        loaded = json.load(f)
+
+            self.push_history()
+            self.data = loaded
+            self.load_data_into_controls()
+            self.refresh_preview()
+            QMessageBox.information(self, "Cargado", "La lista se cargó correctamente.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo cargar la lista.\n\n{e}")
 
 
 if __name__ == "__main__":
