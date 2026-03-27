@@ -7,48 +7,24 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QRectF, QSize
 from PySide6.QtGui import (
-    QAction,
-    QFont,
-    QPainter,
-    QPdfWriter,
-    QPageSize,
-    QPageLayout,
-    QPen,
-    QColor,
-    QImage,
-    QKeySequence,
+    QAction, QFont, QPainter, QPdfWriter, QPageSize, QPageLayout, QPen,
+    QColor, QImage, QKeySequence, QPixmap
 )
 from PySide6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QWidget,
-    QHBoxLayout,
-    QVBoxLayout,
-    QLabel,
-    QPushButton,
-    QLineEdit,
-    QTableWidget,
-    QTableWidgetItem,
-    QGroupBox,
-    QFormLayout,
-    QDoubleSpinBox,
-    QSpinBox,
-    QMessageBox,
-    QFileDialog,
-    QSplitter,
-    QGridLayout,
-    QScrollArea,
-    QSizePolicy,
-    QAbstractItemView,
+    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
+    QPushButton, QLineEdit, QTableWidget, QTableWidgetItem, QGroupBox,
+    QFormLayout, QDoubleSpinBox, QSpinBox, QMessageBox, QFileDialog,
+    QSplitter, QGridLayout, QScrollArea, QSizePolicy, QAbstractItemView
 )
 from PySide6.QtPrintSupport import QPrinter, QPrintDialog
-
 
 APP_TITLE = "Programa Lista Precios"
 BASE_DIR = Path(__file__).resolve().parent
 SAVES_DIR = BASE_DIR.parent / "lista-precios-saves"
 WORK_FILE = SAVES_DIR / "autosave_lista_actual.json"
 
+EXPORT_W = 3508
+EXPORT_H = 2480
 
 DEFAULT_DATA = {
     "business_name": "PLASTICOS BROWN",
@@ -84,26 +60,21 @@ DEFAULT_DATA = {
     },
 }
 
-
 def ensure_saves_dir():
     SAVES_DIR.mkdir(parents=True, exist_ok=True)
-
 
 def round_half_up(value: float) -> int:
     base = int(value)
     frac = value - base
     return base + 1 if frac >= 0.5 else base
 
-
 def sanitize_filename(text: str) -> str:
     invalid = '<>:"/\\|?*'
     result = "".join("_" if ch in invalid else ch for ch in text)
     return result.strip().replace(" ", "_")
 
-
 def package_base_name(data: dict) -> str:
     return sanitize_filename(f"Lista_{data['list_number']}")
-
 
 class PriceListPreview(QWidget):
     def __init__(self):
@@ -123,44 +94,45 @@ class PriceListPreview(QWidget):
         page_rect = self.rect().adjusted(margin, margin, -margin, -margin)
         self.render_page(painter, page_rect)
 
-    def render_page(self, painter: QPainter, page_rect):
-        painter.save()
-        painter.fillRect(page_rect, Qt.white)
+    def render_master_image(self) -> QImage:
+        image = QImage(EXPORT_W, EXPORT_H, QImage.Format_ARGB32)
+        image.fill(Qt.white)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
 
-        x = int(page_rect.left())
-        y = int(page_rect.top())
-        w = int(page_rect.width())
-        h = int(page_rect.height())
+        x = 0
+        y = 0
+        w = EXPORT_W
+        h = EXPORT_H
 
         pen = QPen(Qt.black)
         pen.setWidth(2)
         pen.setJoinStyle(Qt.MiterJoin)
         painter.setPen(pen)
 
-        left = x + int(w * 0.02)
-        right = x + w - int(w * 0.02)
+        left = 70
+        right = w - 70
 
-        title_y = y + int(h * 0.03)
-        title_h = int(h * 0.055)
-        subtitle_y = title_y + title_h + int(h * 0.02)
-        subtitle_h = int(h * 0.04)
-        table_top = subtitle_y + subtitle_h + int(h * 0.055)
-
-        table_h = int(h * 0.50)
-        header_h1 = int(table_h * 0.12)
-        header_h2 = int(table_h * 0.10)
-        row_h = int((table_h - header_h1 - header_h2) / len(self.data["meters"]))
+        title_y = 80
+        title_h = 90
+        subtitle_y = 205
+        subtitle_h = 60
+        table_top = 420
 
         table_x = left
         table_w = right - left
-        left_col_w = int(table_w * 0.074)
+        left_col_w = 260
         sub_col_w = int((table_w - left_col_w) / 8)
         table_right = table_x + left_col_w + sub_col_w * 8
 
-        painter.setFont(QFont("Arial", max(16, int(h * 0.032)), QFont.Bold))
+        header_h1 = 120
+        header_h2 = 100
+        row_h = 116
+
+        painter.setFont(QFont("Arial", 44, QFont.Bold))
         painter.drawText(QRectF(x, title_y, w, title_h), Qt.AlignCenter, self.data["business_name"])
 
-        painter.setFont(QFont("Arial", max(11, int(h * 0.021)), QFont.Bold))
+        painter.setFont(QFont("Arial", 28, QFont.Bold))
         painter.drawText(QRectF(x, subtitle_y, w, subtitle_h), Qt.AlignCenter, self.data["subtitle"])
 
         total_table_h = header_h1 + header_h2 + len(self.data["meters"]) * row_h
@@ -187,20 +159,20 @@ class PriceListPreview(QWidget):
             ypos = table_top + header_h1 + header_h2 + i * row_h
             painter.drawLine(table_x, ypos, table_right, ypos)
 
-        painter.setFont(QFont("Arial", max(8, int(h * 0.017)), QFont.Bold))
+        painter.setFont(QFont("Arial", 26, QFont.Bold))
         painter.drawText(QRectF(table_x, table_top, left_col_w, header_h1), Qt.AlignCenter, "METROS")
         groups = ["1 COLOR", "2 COLORES", "3 COLORES", "4 COLORES"]
         for i, group in enumerate(groups):
             gx = table_x + left_col_w + i * sub_col_w * 2
             painter.drawText(QRectF(gx, table_top, sub_col_w * 2, header_h1), Qt.AlignCenter, group)
 
-        painter.setFont(QFont("Arial", max(7, int(h * 0.015)), QFont.Bold))
+        painter.setFont(QFont("Arial", 22, QFont.Bold))
         for i in range(8):
             cx = table_x + left_col_w + i * sub_col_w
             label = "1 CARA" if i % 2 == 0 else "2 CARAS"
             painter.drawText(QRectF(cx, table_top + header_h1, sub_col_w, header_h2), Qt.AlignCenter, label)
 
-        painter.setFont(QFont("Arial", max(8, int(h * 0.017))))
+        painter.setFont(QFont("Arial", 22))
         data_y = table_top + header_h1 + header_h2
         meters = self.data["meters"]
         columns = self.data["columns"]
@@ -215,20 +187,20 @@ class PriceListPreview(QWidget):
                 text = "" if val == 0 else f"${val}"
                 painter.drawText(QRectF(cx, ry, sub_col_w, row_h), Qt.AlignCenter, text)
 
-        conf_title_y = table_top + total_table_h + int(h * 0.055)
-        painter.setFont(QFont("Arial", max(12, int(h * 0.024)), QFont.Bold))
-        painter.drawText(QRectF(x, conf_title_y, w, int(h * 0.04)), Qt.AlignCenter, "CONFECCIÓN")
+        conf_title_y = table_top + total_table_h + 150
+        painter.setFont(QFont("Arial", 34, QFont.Bold))
+        painter.drawText(QRectF(x, conf_title_y, w, 55), Qt.AlignCenter, "CONFECCIÓN")
 
-        rows_y = conf_title_y + int(h * 0.06)
+        rows_y = conf_title_y + 95
         center_x = x + w // 2
-        label_w = int(w * 0.12)
-        value_w = int(w * 0.22)
-        gap = int(w * 0.02)
+        label_w = 280
+        value_w = 520
+        gap = 40
         label_x = center_x - label_w - gap // 2
         value_x = center_x + gap // 2
-        step = int(h * 0.043)
+        step = 72
 
-        painter.setFont(QFont("Arial", max(9, int(h * 0.021))))
+        painter.setFont(QFont("Arial", 26))
         confeccion = self.data["confeccion"]
         rows = [
             ("FONDO", f"${confeccion['fondo']} x metro"),
@@ -240,25 +212,30 @@ class PriceListPreview(QWidget):
             painter.drawText(QRectF(label_x, yy, label_w, step), Qt.AlignRight | Qt.AlignVCenter, left_text)
             painter.drawText(QRectF(value_x, yy, value_w, step), Qt.AlignLeft | Qt.AlignVCenter, right_text)
 
-        solapa_y = rows_y + step * 3 + int(h * 0.01)
-        painter.setFont(QFont("Arial", max(9, int(h * 0.019)), QFont.Bold))
-        painter.drawText(QRectF(x, solapa_y, w, int(h * 0.035)), Qt.AlignCenter, confeccion["solapa_text"])
+        solapa_y = rows_y + step * 3 + 18
+        painter.setFont(QFont("Arial", 24, QFont.Bold))
+        painter.drawText(QRectF(x, solapa_y, w, 50), Qt.AlignCenter, confeccion["solapa_text"])
 
-        footer_y = y + h - int(h * 0.05)
-        painter.setFont(QFont("Arial", max(8, int(h * 0.016))))
-        painter.drawText(QRectF(x + w - 165, footer_y - int(h * 0.028), 145, int(h * 0.024)), Qt.AlignRight, f"Lista {self.data['list_number']}")
-        painter.drawText(QRectF(x + w - 165, footer_y, 145, int(h * 0.024)), Qt.AlignRight, self.data["date"])
+        painter.setFont(QFont("Arial", 20))
+        painter.drawText(QRectF(w - 290, h - 110, 220, 34), Qt.AlignRight, f"Lista {self.data['list_number']}")
+        painter.drawText(QRectF(w - 290, h - 72, 220, 34), Qt.AlignRight, self.data["date"])
 
-        painter.restore()
-
-    def render_to_image(self, size: QSize) -> QImage:
-        image = QImage(size, QImage.Format_ARGB32)
-        image.fill(Qt.white)
-        painter = QPainter(image)
-        self.render_page(painter, QRectF(0, 0, size.width(), size.height()))
         painter.end()
         return image
 
+    def render_page(self, painter: QPainter, page_rect):
+        base = self.render_master_image()
+        pixmap = QPixmap.fromImage(base)
+        scaled = pixmap.scaled(int(page_rect.width()), int(page_rect.height()), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        x = int(page_rect.left() + (page_rect.width() - scaled.width()) / 2)
+        y = int(page_rect.top() + (page_rect.height() - scaled.height()) / 2)
+        painter.drawPixmap(x, y, scaled)
+
+    def render_to_image(self, size: QSize) -> QImage:
+        base = self.render_master_image()
+        if size.width() == EXPORT_W and size.height() == EXPORT_H:
+            return base
+        return base.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -282,64 +259,34 @@ class MainWindow(QMainWindow):
             QWidget { font-family: Arial; font-size: 12px; background: #252b34; }
             QSplitter::handle { background: #353d49; width: 2px; }
             QGroupBox {
-                color: #eef2f6;
-                border: 1px solid #586170;
-                border-radius: 10px;
-                margin-top: 22px;
-                padding-top: 16px;
-                background: #313846;
-                font-weight: bold;
+                color: #eef2f6; border: 1px solid #586170; border-radius: 10px;
+                margin-top: 22px; padding-top: 16px; background: #313846; font-weight: bold;
             }
             QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                left: 12px;
-                top: -2px;
-                padding: 0 6px;
-                background: #252b34;
-                color: #f4f7fb;
+                subcontrol-origin: margin; subcontrol-position: top left; left: 12px; top: -2px;
+                padding: 0 6px; background: #252b34; color: #f4f7fb;
             }
             QLabel { color: #eef2f6; background: transparent; }
             QLineEdit, QSpinBox, QDoubleSpinBox {
-                background: #f2f4f7;
-                color: #111111;
-                border: 1px solid #c2c9d3;
-                border-radius: 6px;
-                padding: 5px 6px;
-                selection-background-color: #a9c7ff;
-                selection-color: #111111;
+                background: #f2f4f7; color: #111111; border: 1px solid #c2c9d3;
+                border-radius: 6px; padding: 5px 6px; selection-background-color: #a9c7ff; selection-color: #111111;
             }
             QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-                background: #ffffff;
-                color: #111111;
-                border: 1px solid #6ea8fe;
+                background: #ffffff; color: #111111; border: 1px solid #6ea8fe;
             }
             QTableWidget {
-                background: #edf1f5;
-                color: #111111;
-                border: 1px solid #c2c9d3;
-                border-radius: 6px;
-                gridline-color: #cdd4dc;
-                alternate-background-color: #f8f9fb;
-                selection-background-color: #cfe2ff;
-                selection-color: #111111;
+                background: #edf1f5; color: #111111; border: 1px solid #c2c9d3;
+                border-radius: 6px; gridline-color: #cdd4dc; alternate-background-color: #f8f9fb;
+                selection-background-color: #cfe2ff; selection-color: #111111;
             }
             QTableWidget::item { background: #ffffff; color: #111111; padding: 4px; }
             QTableWidget::item:selected { background: #cfe2ff; color: #111111; }
             QTableWidget QHeaderView::section {
-                background: #dfe5ec;
-                color: #111111;
-                border: 1px solid #bcc5d0;
-                padding: 5px;
-                font-weight: bold;
+                background: #dfe5ec; color: #111111; border: 1px solid #bcc5d0; padding: 5px; font-weight: bold;
             }
             QPushButton {
-                background: #4b5563;
-                color: #ffffff;
-                border: 1px solid #758090;
-                border-radius: 7px;
-                padding: 8px 10px;
-                font-weight: bold;
+                background: #4b5563; color: #ffffff; border: 1px solid #758090;
+                border-radius: 7px; padding: 8px 10px; font-weight: bold;
             }
             QPushButton:hover { background: #5c6776; color: #ffffff; }
             QPushButton:pressed { background: #3f4854; color: #ffffff; }
@@ -355,7 +302,6 @@ class MainWindow(QMainWindow):
 
     def build_ui(self):
         self.build_menu()
-
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
@@ -390,7 +336,6 @@ class MainWindow(QMainWindow):
         self.control_layout.setSpacing(16)
         scroll.setWidget(control_host)
         splitter.addWidget(scroll)
-
         splitter.setSizes([1030, 470])
 
         self.build_header_controls()
@@ -402,7 +347,6 @@ class MainWindow(QMainWindow):
 
     def build_menu(self):
         menubar = self.menuBar()
-
         archivo = menubar.addMenu("Archivo")
 
         action_guardar = QAction("Guardar paquete", self)
@@ -501,7 +445,6 @@ class MainWindow(QMainWindow):
     def build_bulk_actions(self):
         box = QGroupBox("Cambios masivos")
         grid = QGridLayout(box)
-
         self.global_percent = QDoubleSpinBox()
         self.global_percent.setRange(-1000, 1000)
         self.global_percent.setDecimals(2)
@@ -579,7 +522,6 @@ class MainWindow(QMainWindow):
     def load_data_into_controls(self):
         self.is_loading_controls = True
         self.table.blockSignals(True)
-
         self.business_name_edit.setText(self.data["business_name"])
         self.subtitle_edit.setText(self.data["subtitle"])
         self.list_number_edit.setValue(self.data["list_number"])
@@ -600,7 +542,6 @@ class MainWindow(QMainWindow):
         self.lateral_edit.setValue(self.data["confeccion"]["lateral"])
         self.rinon_edit.setValue(self.data["confeccion"]["rinon"])
         self.solapa_edit.setText(self.data["confeccion"]["solapa_text"])
-
         self.table.blockSignals(False)
         self.is_loading_controls = False
 
@@ -717,20 +658,26 @@ class MainWindow(QMainWindow):
         self.load_data_into_controls()
         self.refresh_preview(save_history=True)
 
+    def make_export_image(self) -> QImage:
+        return self.preview.render_master_image()
+
     def make_pdf_file(self, filepath: str):
+        image = self.make_export_image()
         pdf = QPdfWriter(filepath)
         pdf.setPageSize(QPageSize(QPageSize.A4))
         pdf.setPageOrientation(QPageLayout.Landscape)
-        pdf.setResolution(150)
+        pdf.setResolution(300)
         painter = QPainter(pdf)
         page_rect = pdf.pageLayout().paintRectPixels(pdf.resolution())
-        margin = 20
-        target = QRectF(margin, margin, page_rect.width() - margin * 2, page_rect.height() - margin * 2)
-        self.preview.render_page(painter, target)
+        pixmap = QPixmap.fromImage(image)
+        scaled = pixmap.scaled(page_rect.width(), page_rect.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        x = (page_rect.width() - scaled.width()) // 2
+        y = (page_rect.height() - scaled.height()) // 2
+        painter.drawPixmap(x, y, scaled)
         painter.end()
 
     def make_png_file(self, filepath: str):
-        image = self.preview.render_to_image(QSize(3508, 2480))
+        image = self.make_export_image()
         image.save(filepath, "PNG")
 
     def export_pdf_dialog(self):
@@ -751,6 +698,7 @@ class MainWindow(QMainWindow):
 
     def print_list(self):
         self.refresh_preview(save_history=False)
+        image = self.make_export_image()
         printer = QPrinter(QPrinter.HighResolution)
         printer.setPageSize(QPageSize(QPageSize.A4))
         printer.setPageOrientation(QPageLayout.Landscape)
@@ -758,9 +706,11 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             painter = QPainter(printer)
             page_rect = printer.pageLayout().paintRectPixels(printer.resolution())
-            margin = 20
-            target = QRectF(margin, margin, page_rect.width() - margin * 2, page_rect.height() - margin * 2)
-            self.preview.render_page(painter, target)
+            pixmap = QPixmap.fromImage(image)
+            scaled = pixmap.scaled(page_rect.width(), page_rect.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            x = (page_rect.width() - scaled.width()) // 2
+            y = (page_rect.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
             painter.end()
 
     def save_package(self):
@@ -805,7 +755,6 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Cargar lista", str(SAVES_DIR), "Paquete ZIP (*.zip);;JSON (*.json)")
         if not path:
             return
-
         try:
             if path.lower().endswith(".json"):
                 with open(path, "r", encoding="utf-8") as f:
@@ -824,7 +773,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Cargado", "La lista se cargó correctamente.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar la lista.\n\n{e}")
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
