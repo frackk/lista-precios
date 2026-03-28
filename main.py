@@ -113,11 +113,11 @@ class PriceListPreview(QWidget):
         left = 70
         right = w - 70
 
-        title_y = 80
-        title_h = 90
+        title_y = 55
+        title_h = 120
         subtitle_y = 205
-        subtitle_h = 60
-        table_top = 420
+        subtitle_h = 72
+        table_top = 465
 
         table_x = left
         table_w = right - left
@@ -125,15 +125,15 @@ class PriceListPreview(QWidget):
         sub_col_w = int((table_w - left_col_w) / 8)
         table_right = table_x + left_col_w + sub_col_w * 8
 
-        header_h1 = 120
-        header_h2 = 100
-        row_h = 116
+        header_h1 = 132
+        header_h2 = 118
+        row_h = 126
 
-        painter.setFont(QFont("Arial", 44, QFont.Bold))
-        painter.drawText(QRectF(x, title_y, w, title_h), Qt.AlignCenter, self.data["business_name"])
+        painter.setFont(QFont("Arial", 68, QFont.Bold))
+        painter.drawText(QRectF(x, title_y, w, title_h), Qt.AlignHCenter | Qt.AlignVCenter, self.data["business_name"])
 
-        painter.setFont(QFont("Arial", 28, QFont.Bold))
-        painter.drawText(QRectF(x, subtitle_y, w, subtitle_h), Qt.AlignCenter, self.data["subtitle"])
+        painter.setFont(QFont("Arial", 50, QFont.Bold))
+        painter.drawText(QRectF(x, subtitle_y, w, subtitle_h), Qt.AlignHCenter | Qt.AlignVCenter, self.data["subtitle"])
 
         total_table_h = header_h1 + header_h2 + len(self.data["meters"]) * row_h
         painter.drawRect(table_x, table_top, table_right - table_x, total_table_h)
@@ -159,20 +159,20 @@ class PriceListPreview(QWidget):
             ypos = table_top + header_h1 + header_h2 + i * row_h
             painter.drawLine(table_x, ypos, table_right, ypos)
 
-        painter.setFont(QFont("Arial", 26, QFont.Bold))
+        painter.setFont(QFont("Arial", 43, QFont.Bold))
         painter.drawText(QRectF(table_x, table_top, left_col_w, header_h1), Qt.AlignCenter, "METROS")
         groups = ["1 COLOR", "2 COLORES", "3 COLORES", "4 COLORES"]
         for i, group in enumerate(groups):
             gx = table_x + left_col_w + i * sub_col_w * 2
             painter.drawText(QRectF(gx, table_top, sub_col_w * 2, header_h1), Qt.AlignCenter, group)
 
-        painter.setFont(QFont("Arial", 22, QFont.Bold))
+        painter.setFont(QFont("Arial", 26, QFont.Bold))
         for i in range(8):
             cx = table_x + left_col_w + i * sub_col_w
             label = "1 CARA" if i % 2 == 0 else "2 CARAS"
             painter.drawText(QRectF(cx, table_top + header_h1, sub_col_w, header_h2), Qt.AlignCenter, label)
 
-        painter.setFont(QFont("Arial", 22))
+        painter.setFont(QFont("Arial", 39))
         data_y = table_top + header_h1 + header_h2
         meters = self.data["meters"]
         columns = self.data["columns"]
@@ -187,20 +187,20 @@ class PriceListPreview(QWidget):
                 text = "" if val == 0 else f"${val}"
                 painter.drawText(QRectF(cx, ry, sub_col_w, row_h), Qt.AlignCenter, text)
 
-        conf_title_y = table_top + total_table_h + 150
-        painter.setFont(QFont("Arial", 34, QFont.Bold))
-        painter.drawText(QRectF(x, conf_title_y, w, 55), Qt.AlignCenter, "CONFECCIÓN")
+        conf_title_y = table_top + total_table_h + 185
+        painter.setFont(QFont("Arial", 46, QFont.Bold))
+        painter.drawText(QRectF(x, conf_title_y, w, 72), Qt.AlignHCenter | Qt.AlignVCenter, "CONFECCIÓN")
 
-        rows_y = conf_title_y + 95
+        rows_y = conf_title_y + 115
         center_x = x + w // 2
         label_w = 280
         value_w = 520
         gap = 40
         label_x = center_x - label_w - gap // 2
         value_x = center_x + gap // 2
-        step = 72
+        step = 82
 
-        painter.setFont(QFont("Arial", 26))
+        painter.setFont(QFont("Arial", 36))
         confeccion = self.data["confeccion"]
         rows = [
             ("FONDO", f"${confeccion['fondo']} x metro"),
@@ -212,13 +212,13 @@ class PriceListPreview(QWidget):
             painter.drawText(QRectF(label_x, yy, label_w, step), Qt.AlignRight | Qt.AlignVCenter, left_text)
             painter.drawText(QRectF(value_x, yy, value_w, step), Qt.AlignLeft | Qt.AlignVCenter, right_text)
 
-        solapa_y = rows_y + step * 3 + 18
-        painter.setFont(QFont("Arial", 24, QFont.Bold))
-        painter.drawText(QRectF(x, solapa_y, w, 50), Qt.AlignCenter, confeccion["solapa_text"])
+        solapa_y = rows_y + step * 3 + 34
+        painter.setFont(QFont("Arial", 37, QFont.Bold))
+        painter.drawText(QRectF(x, solapa_y, w, 62), Qt.AlignHCenter | Qt.AlignVCenter, confeccion["solapa_text"])
 
-        painter.setFont(QFont("Arial", 20))
-        painter.drawText(QRectF(w - 290, h - 110, 220, 34), Qt.AlignRight, f"Lista {self.data['list_number']}")
-        painter.drawText(QRectF(w - 290, h - 72, 220, 34), Qt.AlignRight, self.data["date"])
+        painter.setFont(QFont("Arial", 34))
+        painter.drawText(QRectF(w - 340, h - 125, 270, 42), Qt.AlignRight | Qt.AlignVCenter, f"Lista {self.data['list_number']}")
+        painter.drawText(QRectF(w - 340, h - 78, 270, 42), Qt.AlignRight | Qt.AlignVCenter, self.data["date"])
 
         painter.end()
         return image
